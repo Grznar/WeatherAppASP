@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WeatherApp.Application.Common.Dto;
@@ -37,7 +38,7 @@ public class WeatherController : Controller
             Temperature = weatherData.Temperature,
             LoadStatus = loadStatus,
             Weather = weatherData.Description,
-            MeasurementTime = DateTime.Now,
+            MeasurementTime = System.DateTime.Now,
             ApplicationUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
         };
 
@@ -50,51 +51,91 @@ public class WeatherController : Controller
     [HttpPost]
     public async Task<IActionResult> MeasureByCity(string city)
     {
-        // Get coordinates using the geocoding service
-        var geoResult = await _geoService.GetCoordinatesAsync(city);
-        if (geoResult == null)
+        double lat = 0;
+        double lon = 0;
+        bool isCoordinateInput = false;
+
+        // If the input contains a comma, try to parse it as coordinates
+        if (city.Contains(","))
         {
-            ModelState.AddModelError("", "City/ZIP Code not found.");
-            return RedirectToAction("Index");
+            var parts = city.Split(',');
+            if (parts.Length == 2 &&
+                double.TryParse(parts[0].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out lat) &&
+                double.TryParse(parts[1].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out lon))
+            {
+                isCoordinateInput = true;
+            }
         }
 
-        double lat = double.Parse(geoResult.lat, CultureInfo.InvariantCulture);
-        double lon = double.Parse(geoResult.lon, CultureInfo.InvariantCulture);
-
-        // If either coordinate is 0, consider it an invalid result
-        if (lat == 0 || lon == 0)
+        if (isCoordinateInput)
         {
-            ModelState.AddModelError("", "Invalid location – coordinates returned as 0.");
+            // Use the parsed coordinates directly
+            WeatherData weatherData = await _weatherService.GetWeatherAsync(lat, lon);
+            string loadStatus = weatherData.Temperature > 25 ? "High Temperature Warning" : "No Warning";
+
+            var measurement = new WeatherMes
+            {
+                CityOrPSC = city, // Input string, e.g., "49.2148,15.8796"
+                Latitude = lat,
+                Longitude = lon,
+                Temperature = weatherData.Temperature,
+                LoadStatus = loadStatus,
+                Weather = weatherData.Description,
+                MeasurementTime = System.DateTime.Now,
+                ApplicationUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            };
+
+            _unitOfWork.WeatherMes.Add(measurement);
+            _unitOfWork.Save();
+
             return RedirectToAction("Index");
         }
-
-        // Get current weather data for the obtained coordinates
-        WeatherData weatherData = await _weatherService.GetWeatherAsync(lat, lon);
-        string loadStatus = weatherData.Temperature > 25 ? "High Temperature Warning" : "No Warning";
-
-        var measurement = new WeatherMes
+        else
         {
-            CityOrPSC = city,
-            Latitude = lat,
-            Longitude = lon,
-            Temperature = weatherData.Temperature,
-            LoadStatus = loadStatus,
-            Weather = weatherData.Description,
-            MeasurementTime = DateTime.Now,
-            ApplicationUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-        };
+            // Use the geocoding service for free-text lookup
+            var geoResult = await _geoService.GetCoordinatesAsync(city);
+            if (geoResult == null)
+            {
+                ModelState.AddModelError("", "City/ZIP Code not found.");
+                return RedirectToAction("Index");
+            }
 
-        _unitOfWork.WeatherMes.Add(measurement);
-        _unitOfWork.Save();
+            lat = double.Parse(geoResult.lat, CultureInfo.InvariantCulture);
+            lon = double.Parse(geoResult.lon, CultureInfo.InvariantCulture);
 
-        return RedirectToAction("Index");
+            // If either coordinate is 0, treat as an invalid result.
+            if (lat == 0 || lon == 0)
+            {
+                ModelState.AddModelError("", "Invalid location – coordinates returned as 0.");
+                return RedirectToAction("Index");
+            }
+
+            WeatherData weatherData = await _weatherService.GetWeatherAsync(lat, lon);
+            string loadStatus = weatherData.Temperature > 25 ? "High Temperature Warning" : "No Warning";
+
+            var measurement = new WeatherMes
+            {
+                CityOrPSC = city,
+                Latitude = lat,
+                Longitude = lon,
+                Temperature = weatherData.Temperature,
+                LoadStatus = loadStatus,
+                Weather = weatherData.Description,
+                MeasurementTime = System.DateTime.Now,
+                ApplicationUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            };
+
+            _unitOfWork.WeatherMes.Add(measurement);
+            _unitOfWork.Save();
+
+            return RedirectToAction("Index");
+        }
     }
 
     // Action to create a new measurement for an existing location (triggered by the button on the chart)
     [HttpGet]
     public async Task<IActionResult> NewMeasurement(int id)
     {
-        // Find the existing measurement by ID
         var existingMeasurement = _unitOfWork.WeatherMes.Get(u => u.Id == id);
         if (existingMeasurement == null)
         {
@@ -119,7 +160,7 @@ public class WeatherController : Controller
             Temperature = weatherData.Temperature,
             LoadStatus = loadStatus,
             Weather = weatherData.Description,
-            MeasurementTime = DateTime.Now,
+            MeasurementTime = System.DateTime.Now,
             ApplicationUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
         };
 
