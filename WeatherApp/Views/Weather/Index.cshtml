@@ -1,0 +1,141 @@
+﻿@using System.Globalization
+@model WeatherApp.Application.Common.Dto.WeatherOverviewVM
+@{
+    ViewData["Title"] = "Weather Measurements";
+}
+
+<!-- Load Chart.js immediately so that the Chart object is available for subsequent scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<section class="py-5" id="weather">
+    <div class="container px-4 px-lg-5">
+        <!-- Section Title -->
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h1 class="text-uppercase text-primary">Weather Measurements</h1>
+                <p class="lead text-muted">
+                    Choose a location for a weather measurement – either manually by entering coordinates or by entering a city/ZIP code.
+                </p>
+            </div>
+        </div>
+        <!-- Forms for entering the location -->
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card mb-5 shadow">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="weatherTab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab" aria-controls="manual" aria-selected="true">
+                                    Manual Coordinates
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="lookup-tab" data-bs-toggle="tab" data-bs-target="#lookup" type="button" role="tab" aria-controls="lookup" aria-selected="false">
+                                    City or ZIP Code
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body tab-content" id="weatherTabContent">
+                        <!-- Manual Coordinates Tab -->
+                        <div class="tab-pane fade show active" id="manual" role="tabpanel" aria-labelledby="manual-tab">
+                            <form asp-action="MeasureManual" method="post" class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="latitude" class="form-label">Latitude</label>
+                                    <input type="text" class="form-control" id="latitude" name="Latitude" placeholder="e.g. 50.08804" required />
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="longitude" class="form-label">Longitude</label>
+                                    <input type="text" class="form-control" id="longitude" name="Longitude" placeholder="e.g. 14.42076" required />
+                                </div>
+                                <div class="col-12 text-center mt-3">
+                                    <button type="submit" class="btn btn-primary">New Measurement</button>
+                                </div>
+                            </form>
+                        </div>
+                        <!-- City or ZIP Code Tab -->
+                        <div class="tab-pane fade" id="lookup" role="tabpanel" aria-labelledby="lookup-tab">
+                            <form asp-action="MeasureByCity" method="post" class="row g-3">
+                                <div class="col-12">
+                                    <label for="city" class="form-label">City or ZIP Code</label>
+                                    <input type="text" class="form-control" id="city" name="City" placeholder="Enter city or ZIP code" required />
+                                </div>
+                                <div class="col-12 text-center mt-3">
+                                    <button type="submit" class="btn btn-primary">New Measurement</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Display Measurements and Charts for Each Location -->
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="text-center mb-4">Your Measurements</h2>
+            </div>
+        </div>
+        <div class="row">
+            @if (Model.Locations != null && Model.Locations.Any())
+            {
+                foreach (var location in Model.Locations)
+                {
+                    // Generate dynamic chart data from the measurements
+                    var sortedMeasurements = location.Measurements.OrderBy(m => m.MeasurementTime).ToList();
+                    var labels = string.Join(",", sortedMeasurements.Select(m => "\"" + m.MeasurementTime.ToString("dd.MM HH:mm") + "\""));
+                    var temps = string.Join(",", sortedMeasurements.Select(m => m.Temperature.ToString(CultureInfo.InvariantCulture)));
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow">
+                            <div class="card-header">
+                                <h5 class="card-title">Measurements for: @location.CityOrPSC</h5>
+                                <p class="card-text">
+                                    <small class="text-muted">
+                                        Last measured: @location.LastMeasurement.MeasurementTime.ToString("dd.MM.yyyy HH:mm")<br />
+                                        Weather: @location.LastMeasurement.Weather<br />
+                                        Temperature: @location.LastMeasurement.Temperature &deg;C<br />
+                                        Status: @location.LastMeasurement.LoadStatus
+                                    </small>
+                                </p>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="chart-@location.LastMeasurement.Id" width="400" height="200"></canvas>
+                            </div>
+                            <div class="card-footer text-center">
+                                <!-- Pass the ID of the last measurement to create a new record for the same location -->
+                                <a asp-action="NewMeasurement" asp-route-id="@location.LastMeasurement.Id" class="btn btn-secondary">New Measurement</a>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        (function() {
+                            var ctx = document.getElementById("chart-@location.LastMeasurement.Id").getContext("2d");
+                            new Chart(ctx, {
+                                type: "line",
+                                data: {
+                                    labels: [ @Html.Raw(labels) ],
+                                    datasets: [{
+                                        label: "Temperature (°C)",
+                                        data: [ @Html.Raw(temps) ],
+                                        borderColor: "rgba(75,192,192,1)",
+                                        backgroundColor: "rgba(75,192,192,0.2)",
+                                        fill: true
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false
+                                }
+                            });
+                        })();
+                    </script>
+                }
+            }
+            else
+            {
+                <div class="col-12 text-center">
+                    <p class="text-muted">No measurements recorded yet.</p>
+                </div>
+            }
+        </div>
+    </div>
+</section>
